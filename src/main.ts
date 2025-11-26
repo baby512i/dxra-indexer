@@ -10,7 +10,9 @@ import { ConfigService } from '@nestjs/config';
 async function bootstrap() {
   const app = await NestFactory.create<NestFastifyApplication>(
     AppModule,
-    new FastifyAdapter(),
+    new FastifyAdapter({
+      trustProxy: true, // Trust proxy headers from Nginx
+    }),
   );
 
   // Load pools from disk into memory cache

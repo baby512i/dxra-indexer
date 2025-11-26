@@ -42,14 +42,15 @@ Create a `.env` file in the root directory:
 ```env
 PORT=8000
 NODE_ENV=development
-HELIUS_WEBHOOK_SECRET=your-webhook-secret-here
+HELIUS_WEBHOOK_ID=your-webhook-id-here
 ```
 
 ### Environment Variables
 
 - `PORT`: Server port (default: 8000)
 - `NODE_ENV`: Environment mode (default: development)
-- `HELIUS_WEBHOOK_SECRET`: Secret for validating webhook requests (optional, but recommended)
+- `HELIUS_WEBHOOK_ID`: Webhook ID from Helius dashboard (e.g., `0d64f9db-85a1-40f1-91c7-cb43308906f2`) - recommended
+- `HELIUS_WEBHOOK_SECRET`: Alternative: Secret for validating webhook requests (if you have one instead of webhook ID)
 
 ## Running the Application
 
@@ -78,7 +79,7 @@ The server will start on `http://0.0.0.0:8000` (or your configured PORT).
      - Mainnet AMMV4: `675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8`
      - Mainnet CPMM: `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C`
      - Mainnet CLMM: `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`
-   - **Webhook Secret**: Set this in your `.env` file as `HELIUS_WEBHOOK_SECRET`
+   - **Webhook ID**: Found in your Helius dashboard, set this in your `.env` file as `HELIUS_WEBHOOK_ID`
 
 ### Example Webhook Payload
 
@@ -239,7 +240,7 @@ npm run start:dev
 ### Webhook Not Receiving Data
 
 1. Verify webhook URL is accessible from the internet
-2. Check that `HELIUS_WEBHOOK_SECRET` matches your Helius configuration
+2. Check that `HELIUS_WEBHOOK_ID` matches your Helius webhook ID (found in dashboard)
 3. Ensure Raydium program IDs are included in webhook filters
 4. Check server logs for error messages
 

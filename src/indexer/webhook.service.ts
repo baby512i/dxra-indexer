@@ -58,15 +58,34 @@ export class WebhookService {
     }
   }
 
-  validateWebhookSecret(payload: any): boolean {
-    const expectedSecret = this.configService.get<string>('heliusWebhookSecret');
-    if (!expectedSecret) {
-      // If no secret is configured, allow all requests
-      return true;
+  validateWebhook(payload: any, headers?: any): boolean {
+    // Check for webhook ID (primary method)
+    const expectedWebhookId = this.configService.get<string>('heliusWebhookId');
+    if (expectedWebhookId) {
+      // Check in headers (Helius typically sends webhook ID in headers)
+      const webhookIdFromHeader = headers?.['x-webhook-id'] || headers?.['webhook-id'];
+      // Check in payload
+      const webhookIdFromPayload = payload?.webhookId || payload?.id;
+      
+      if (webhookIdFromHeader === expectedWebhookId || webhookIdFromPayload === expectedWebhookId) {
+        return true;
+      }
+      
+      // If webhook ID is configured but doesn't match, reject
+      if (webhookIdFromHeader || webhookIdFromPayload) {
+        return false;
+      }
     }
 
-    const providedSecret = payload?.secret || payload?.webhookSecret;
-    return providedSecret === expectedSecret;
+    // Fallback to secret validation (if webhook ID not configured)
+    const expectedSecret = this.configService.get<string>('heliusWebhookSecret');
+    if (expectedSecret) {
+      const providedSecret = payload?.secret || payload?.webhookSecret;
+      return providedSecret === expectedSecret;
+    }
+
+    // If neither webhook ID nor secret is configured, allow all requests (development mode)
+    return true;
   }
 }
 
