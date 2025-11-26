@@ -235,6 +235,69 @@ npm run build
 npm run start:dev
 ```
 
+## Testing the Webhook
+
+### Checking Webhook Status
+
+Visit the webhook endpoint via GET to check its status:
+
+```bash
+GET https://your-domain.com/webhook/raydium
+```
+
+This will return:
+```json
+{
+  "endpoint": "/webhook/raydium",
+  "method": "POST",
+  "status": "active",
+  "authentication": {
+    "webhookIdConfigured": true,
+    "webhookSecretConfigured": false,
+    "mode": "webhook-id"
+  },
+  "message": "This endpoint accepts POST requests from Helius. Use POST method to send webhook data."
+}
+```
+
+**Note:** The webhook endpoint only accepts POST requests. Accessing it via GET in a browser will show status information, but actual webhook data must be sent via POST.
+
+### Verifying Webhook is Working
+
+1. **Check Server Logs**: When Helius sends a webhook, you should see detailed logs:
+   ```
+   📥 Webhook received at: 2024-11-26T21:12:00.000Z
+   📋 Headers: {...}
+   ✅ Webhook validated successfully
+   🔄 Processing webhook payload...
+   📊 Found 1 transaction(s) to process
+   ✅ Detected new AMMV4 pool on mainnet: ...
+   ```
+
+2. **Monitor Pool Count**: After a webhook is processed, check if pools are being added:
+   ```bash
+   GET https://your-domain.com/
+   ```
+   Look at the `stats.mainnetPools` or `stats.devnetPools` count
+
+3. **Query for Specific Mint**: Try querying pools for a token that should have pools:
+   ```bash
+   GET https://your-domain.com/pools?mint=<token_address>
+   ```
+
+### Testing from Helius Dashboard
+
+1. Log in to your Helius dashboard
+2. Navigate to your webhook settings
+3. Click "Test Webhook" - Helius will send a test payload
+4. Check your server logs to see if the webhook was received and processed
+
+### Common Issues
+
+- **404 Error on GET `/webhook/raydium`**: This is normal! The endpoint now returns status info via GET. The actual webhook only processes POST requests.
+- **No logs appearing**: Check that your webhook URL in Helius is correct: `https://your-domain.com/webhook/raydium`
+- **Authentication errors**: Verify `HELIUS_WEBHOOK_ID` in your `.env` file matches the webhook ID in Helius dashboard
+
 ## Troubleshooting
 
 ### Webhook Not Receiving Data
