@@ -27,10 +27,20 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    const apiKey = this.configService.get<string>('heliusApiKey');
-    if (!apiKey) {
-      this.logger.error('HELIUS_API_KEY is not configured. WebSocket connections will not be established.');
+    const apiKeyMainnet = this.configService.get<string>('heliusApiKeyMainnet');
+    const apiKeyDevnet = this.configService.get<string>('heliusApiKeyDevnet');
+
+    if (!apiKeyMainnet && !apiKeyDevnet) {
+      this.logger.error('Neither HELIUS_API_KEY_MAINNET nor HELIUS_API_KEY_DEVNET is configured. WebSocket connections will not be established.');
       return;
+    }
+
+    if (!apiKeyMainnet) {
+      this.logger.warn('HELIUS_API_KEY_MAINNET is not configured. Mainnet connections will not be established.');
+    }
+
+    if (!apiKeyDevnet) {
+      this.logger.warn('HELIUS_API_KEY_DEVNET is not configured. Devnet connections will not be established.');
     }
 
     this.initializeRpcConnections();
@@ -51,33 +61,43 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
   }
 
   private initializeRpcConnections() {
-    const apiKey = this.configService.get<string>('heliusApiKey');
+    const apiKeyMainnet = this.configService.get<string>('heliusApiKeyMainnet');
+    const apiKeyDevnet = this.configService.get<string>('heliusApiKeyDevnet');
     
-    const mainnetRpc = `https://mainnet.helius-rpc.com/?api-key=${apiKey}`;
-    const devnetRpc = `https://devnet.helius-rpc.com/?api-key=${apiKey}`;
+    if (apiKeyMainnet) {
+      const mainnetRpc = `https://mainnet.helius-rpc.com/?api-key=${apiKeyMainnet}`;
+      this.rpcConnections.set('mainnet', new Connection(mainnetRpc, 'confirmed'));
+      this.logger.log('Mainnet RPC connection initialized');
+    }
 
-    this.rpcConnections.set('mainnet', new Connection(mainnetRpc, 'confirmed'));
-    this.rpcConnections.set('devnet', new Connection(devnetRpc, 'confirmed'));
-
-    this.logger.log('RPC connections initialized');
+    if (apiKeyDevnet) {
+      const devnetRpc = `https://devnet.helius-rpc.com/?api-key=${apiKeyDevnet}`;
+      this.rpcConnections.set('devnet', new Connection(devnetRpc, 'confirmed'));
+      this.logger.log('Devnet RPC connection initialized');
+    }
   }
 
   private initializeWebSocketConnections() {
-    const apiKey = this.configService.get<string>('heliusApiKey');
+    const apiKeyMainnet = this.configService.get<string>('heliusApiKeyMainnet');
+    const apiKeyDevnet = this.configService.get<string>('heliusApiKeyDevnet');
     
     // Mainnet connections
-    const mainnetWss = `wss://mainnet.helius-rpc.com/?api-key=${apiKey}`;
-    this.createConnection('mainnet', 'CLMM', RAYDIUM_MAINNET_PROGRAMS.CLMM, mainnetWss);
-    this.createConnection('mainnet', 'CPMM', RAYDIUM_MAINNET_PROGRAMS.CPMM, mainnetWss);
-    this.createConnection('mainnet', 'AMMV4', RAYDIUM_MAINNET_PROGRAMS.AMMV4, mainnetWss);
-    this.createConnection('mainnet', 'LAUNCHLAB', RAYDIUM_MAINNET_PROGRAMS.LAUNCHLAB, mainnetWss);
+    if (apiKeyMainnet) {
+      const mainnetWss = `wss://mainnet.helius-rpc.com/?api-key=${apiKeyMainnet}`;
+      this.createConnection('mainnet', 'CLMM', RAYDIUM_MAINNET_PROGRAMS.CLMM, mainnetWss);
+      this.createConnection('mainnet', 'CPMM', RAYDIUM_MAINNET_PROGRAMS.CPMM, mainnetWss);
+      this.createConnection('mainnet', 'AMMV4', RAYDIUM_MAINNET_PROGRAMS.AMMV4, mainnetWss);
+      this.createConnection('mainnet', 'LAUNCHLAB', RAYDIUM_MAINNET_PROGRAMS.LAUNCHLAB, mainnetWss);
+    }
 
     // Devnet connections
-    const devnetWss = `wss://devnet.helius-rpc.com/?api-key=${apiKey}`;
-    this.createConnection('devnet', 'CLMM', RAYDIUM_DEVNET_PROGRAMS.CLMM, devnetWss);
-    this.createConnection('devnet', 'CPMM', RAYDIUM_DEVNET_PROGRAMS.CPMM, devnetWss);
-    this.createConnection('devnet', 'AMMV4', RAYDIUM_DEVNET_PROGRAMS.AMMV4, devnetWss);
-    this.createConnection('devnet', 'LAUNCHLAB', RAYDIUM_DEVNET_PROGRAMS.LAUNCHLAB, devnetWss);
+    if (apiKeyDevnet) {
+      const devnetWss = `wss://devnet.helius-rpc.com/?api-key=${apiKeyDevnet}`;
+      this.createConnection('devnet', 'CLMM', RAYDIUM_DEVNET_PROGRAMS.CLMM, devnetWss);
+      this.createConnection('devnet', 'CPMM', RAYDIUM_DEVNET_PROGRAMS.CPMM, devnetWss);
+      this.createConnection('devnet', 'AMMV4', RAYDIUM_DEVNET_PROGRAMS.AMMV4, devnetWss);
+      this.createConnection('devnet', 'LAUNCHLAB', RAYDIUM_DEVNET_PROGRAMS.LAUNCHLAB, devnetWss);
+    }
   }
 
   private createConnection(
@@ -571,6 +591,34 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       this.logger.error(`❌ Error extracting pool data from transaction ${signature}: ${error.message}`);
       return null;
     }
+  }
+
+  getConnectionStatus(): Record<string, { status: string; subscriptionId: number | null; reconnectAttempts: number }> {
+    const status: Record<string, { status: string; subscriptionId: number | null; reconnectAttempts: number }> = {};
+
+    this.connections.forEach((conn, key) => {
+      let connectionStatus = 'disconnected';
+      
+      if (conn.ws) {
+        if (conn.ws.readyState === WebSocket.OPEN) {
+          connectionStatus = 'connected';
+        } else if (conn.ws.readyState === WebSocket.CONNECTING) {
+          connectionStatus = 'connecting';
+        } else if (conn.ws.readyState === WebSocket.CLOSING) {
+          connectionStatus = 'closing';
+        } else {
+          connectionStatus = 'disconnected';
+        }
+      }
+
+      status[key] = {
+        status: connectionStatus,
+        subscriptionId: conn.subscriptionId,
+        reconnectAttempts: conn.reconnectAttempts,
+      };
+    });
+
+    return status;
   }
 
   private scheduleReconnect(

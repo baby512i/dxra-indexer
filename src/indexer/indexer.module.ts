@@ -6,6 +6,7 @@ import { StorageModule } from '../storage/storage.module';
 @Module({
   imports: [ConfigModule, StorageModule],
   providers: [WebSocketService],
+  exports: [WebSocketService],
 })
 export class IndexerModule {}
 

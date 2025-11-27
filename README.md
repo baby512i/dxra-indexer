@@ -43,16 +43,27 @@ Create a `.env` file in the root directory:
 ```env
 PORT=8000
 NODE_ENV=development
-HELIUS_API_KEY=your-helius-api-key-here
+
+# Option 1: Use separate API keys for each network (recommended)
+HELIUS_API_KEY_MAINNET=your-mainnet-api-key-here
+HELIUS_API_KEY_DEVNET=your-devnet-api-key-here
+
+# Option 2: Use a single API key for both networks (backward compatible)
+# HELIUS_API_KEY=your-helius-api-key-here
 ```
 
 ### Environment Variables
 
 - `PORT`: Server port (default: 8000)
 - `NODE_ENV`: Environment mode (default: development)
-- `HELIUS_API_KEY`: Your Helius API key (required) - Get it from [Helius Dashboard](https://dashboard.helius.dev)
+- `HELIUS_API_KEY_MAINNET`: Your Helius API key for mainnet (recommended) - Get it from [Helius Dashboard](https://dashboard.helius.dev)
+- `HELIUS_API_KEY_DEVNET`: Your Helius API key for devnet (recommended) - Get it from [Helius Dashboard](https://dashboard.helius.dev)
+- `HELIUS_API_KEY`: Single API key for both networks (backward compatible) - Used if network-specific keys are not set
 
-**Note:** The service automatically monitors both mainnet and devnet simultaneously. No network configuration needed.
+**Note:** 
+- If both `HELIUS_API_KEY_MAINNET` and `HELIUS_API_KEY_DEVNET` are set, they will be used for their respective networks
+- If only `HELIUS_API_KEY` is set, it will be used for both networks
+- If only one network-specific key is set, only that network's connections will be established
 
 ## Running the Application
 
@@ -71,12 +82,18 @@ The server will start on `http://0.0.0.0:8000` (or your configured PORT).
 
 ## WebSocket Configuration
 
-### Setting up Helius API Key
+### Setting up Helius API Keys
 
 1. Log in to your [Helius Dashboard](https://dashboard.helius.dev)
 2. Navigate to the API section
-3. Copy your API key
-4. Add it to your `.env` file as `HELIUS_API_KEY`
+3. Copy your API keys:
+   - For mainnet: Copy and set as `HELIUS_API_KEY_MAINNET`
+   - For devnet: Copy and set as `HELIUS_API_KEY_DEVNET`
+4. Add them to your `.env` file
+
+**Recommended:** Use separate API keys for mainnet and devnet to better manage rate limits and usage.
+
+**Backward Compatible:** You can still use a single `HELIUS_API_KEY` for both networks if preferred.
 
 The service automatically:
 - Connects to Helius WebSocket endpoints for both mainnet and devnet
@@ -147,6 +164,70 @@ curl http://localhost:8000/pools/devnet?mint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGG
 ```
 
 **Response:** Same format as mainnet, with `"network": "devnet"`
+
+### Health Check
+
+Get service health status including WebSocket connection status:
+
+```bash
+GET /
+```
+
+**Example:**
+```bash
+curl http://localhost:8000/
+```
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "message": "dxra-indexer API is running",
+  "version": "1.0.0",
+  "endpoints": {
+    "mainnet": "/pools?mint=<token_mint_address>",
+    "devnet": "/pools/devnet?mint=<token_mint_address>"
+  },
+  "stats": {
+    "mainnetPools": 42,
+    "devnetPools": 5
+  },
+  "websocketConnections": {
+    "mainnet-CLMM": {
+      "status": "connected",
+      "subscriptionId": 123,
+      "reconnectAttempts": 0
+    },
+    "mainnet-CPMM": {
+      "status": "connected",
+      "subscriptionId": 124,
+      "reconnectAttempts": 0
+    },
+    "mainnet-AMMV4": {
+      "status": "connected",
+      "subscriptionId": 125,
+      "reconnectAttempts": 0
+    },
+    "mainnet-LAUNCHLAB": {
+      "status": "connected",
+      "subscriptionId": 126,
+      "reconnectAttempts": 0
+    },
+    "devnet-CLMM": {
+      "status": "disconnected",
+      "subscriptionId": null,
+      "reconnectAttempts": 2
+    }
+  },
+  "timestamp": "2024-11-26T21:12:00.000Z"
+}
+```
+
+**Connection Status Values:**
+- `connected`: WebSocket is open and subscribed
+- `connecting`: WebSocket is in the process of connecting
+- `closing`: WebSocket is closing
+- `disconnected`: WebSocket is not connected (will auto-reconnect)
 
 ## Data Storage
 
