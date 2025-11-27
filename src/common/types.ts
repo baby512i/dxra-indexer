@@ -1,6 +1,6 @@
 export type Network = 'mainnet' | 'devnet';
 
-export type PoolType = 'AMMV4' | 'CPMM' | 'CLMM';
+export type PoolType = 'AMMV4' | 'CPMM' | 'CLMM' | 'LAUNCHLAB';
 
 export interface Pool {
   poolAddress: string;

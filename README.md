@@ -1,10 +1,10 @@
 # dxra-indexer
 
-A NestJS-based indexer that tracks Raydium pool creations in real-time via Helius WebSocket API. The system detects AMM v4, CPMM, and CLMM pool creations on both Solana mainnet and devnet, stores them in-memory and on-disk, and exposes query APIs.
+A NestJS-based indexer that tracks Raydium pool creations in real-time via Helius WebSocket API. The system detects AMM v4, CPMM, CLMM, and LaunchLab pool creations on both Solana mainnet and devnet, stores them in-memory and on-disk, and exposes query APIs.
 
 ## Features
 
-- **Real-time Pool Detection**: Monitors Raydium pool creations (AMM v4, CPMM, CLMM) via Helius WebSocket connections
+- **Real-time Pool Detection**: Monitors Raydium pool creations (AMM v4, CPMM, CLMM, LaunchLab) via Helius WebSocket connections
 - **Dual Network Support**: Tracks pools on both mainnet and devnet separately
 - **Persistent Storage**: Stores pools in both in-memory cache and JSON files
 - **Automatic Pruning**: Removes pools older than 60 minutes every 60 seconds
@@ -84,6 +84,7 @@ The service automatically:
   - **Mainnet AMMV4**: `675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8`
   - **Mainnet CPMM**: `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C`
   - **Mainnet CLMM**: `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`
+  - **Mainnet LaunchLab**: `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj`
   - **Devnet programs**: Automatically configured
 
 ### How It Works
@@ -185,6 +186,11 @@ The indexer detects three types of Raydium pools by monitoring WebSocket log str
 - Detects `createpool`, `create_pool`, or `create pool` in log messages
 - Program ID: `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` (mainnet)
 - Extracts pool ID, mintA, and mintB from account indices with fallback to token balances
+
+### LaunchLab
+- Detects `initializev2` or `initialize_v2` in log messages
+- Program ID: `LanMV9sAd7wArD4vJFi2qDdfnVhFxYSUg6eADduJ3uj` (mainnet)
+- Extracts pool ID from account keys, finds LP mint from InitializeMint2, extracts mints from token balances
 
 ## Project Structure
 
@@ -294,6 +300,7 @@ When the service starts, you should see logs indicating successful WebSocket con
    - AMMV4: `InitializeInstruction2`
    - CPMM: `init_pool` or `initialize`
    - CLMM: `create_pool` or `initialize_pair`
+   - LaunchLab: `initializev2` or `initialize_v2`
 2. Check that program IDs match network (mainnet vs devnet)
 3. Review detector logs for parsing errors
 

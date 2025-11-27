@@ -70,12 +70,14 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
     this.createConnection('mainnet', 'CLMM', RAYDIUM_MAINNET_PROGRAMS.CLMM, mainnetWss);
     this.createConnection('mainnet', 'CPMM', RAYDIUM_MAINNET_PROGRAMS.CPMM, mainnetWss);
     this.createConnection('mainnet', 'AMMV4', RAYDIUM_MAINNET_PROGRAMS.AMMV4, mainnetWss);
+    this.createConnection('mainnet', 'LAUNCHLAB', RAYDIUM_MAINNET_PROGRAMS.LAUNCHLAB, mainnetWss);
 
     // Devnet connections
     const devnetWss = `wss://devnet.helius-rpc.com/?api-key=${apiKey}`;
     this.createConnection('devnet', 'CLMM', RAYDIUM_DEVNET_PROGRAMS.CLMM, devnetWss);
     this.createConnection('devnet', 'CPMM', RAYDIUM_DEVNET_PROGRAMS.CPMM, devnetWss);
     this.createConnection('devnet', 'AMMV4', RAYDIUM_DEVNET_PROGRAMS.AMMV4, devnetWss);
+    this.createConnection('devnet', 'LAUNCHLAB', RAYDIUM_DEVNET_PROGRAMS.LAUNCHLAB, devnetWss);
   }
 
   private createConnection(
@@ -246,6 +248,16 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    // Check LaunchLab
+    if (programId === programs.LAUNCHLAB) {
+      const patterns = ['instruction: initializev2', 'instruction: initialize_v2'];
+      for (const pattern of patterns) {
+        if (text.includes(pattern)) {
+          return 'LAUNCHLAB';
+        }
+      }
+    }
+
     // Check AMM v4
     if (programId === programs.AMMV4) {
       const patterns = ['initialize2: initializeinstruction2', 'program log: initialize2:'];
@@ -267,6 +279,7 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
   ): Promise<void> {
     try {
       this.logger.log(`🔍 Extracting pool data from ${poolType} transaction...`);
+      this.logger.log(`   Transaction signature: ${signature}`);
 
       const connection = this.rpcConnections.get(network);
       if (!connection) {
@@ -287,7 +300,7 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       const poolData = this.extractPoolDataFromTransaction(tx, poolType, programId, network, signature);
       
       if (!poolData) {
-        this.logger.warn(`⚠️  Could not extract pool data from transaction`);
+        this.logger.warn(`⚠️  Could not extract pool data from transaction: ${signature}`);
         return;
       }
 
@@ -324,7 +337,7 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       } else if (message.staticAccountKeys && Array.isArray(message.staticAccountKeys)) {
         accountKeys = [...message.staticAccountKeys];
       } else {
-        this.logger.error('❌ Could not find account keys');
+        this.logger.error(`❌ Could not find account keys for transaction: ${signature}`);
         return null;
       }
 
@@ -354,7 +367,7 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (!poolInstruction) {
-        this.logger.error('❌ Pool creation instruction not found');
+        this.logger.error(`❌ Pool creation instruction not found for transaction: ${signature}`);
         return null;
       }
 
@@ -370,7 +383,7 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (!accountIndices || accountIndices.length < 3) {
-        this.logger.error('❌ Invalid instruction structure');
+        this.logger.error(`❌ Invalid instruction structure for transaction: ${signature}`);
         return null;
       }
 
@@ -465,6 +478,39 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
             mintA = mintArray[0];
           }
         }
+      } else if (poolType === 'LAUNCHLAB') {
+        // LaunchLab InitializeV2: accounts[0] = pool state (pool ID)
+        poolId = accountKeys[accountIndices[0]]?.toString() || null;
+
+        // Find LP mint from InitializeMint2 instruction
+        let lpMint: string | null = null;
+        for (const ix of instructions) {
+          const programIdIndex = ix.programIdIndex;
+          if (programIdIndex !== undefined && accountKeys[programIdIndex]) {
+            const ixProgramId = accountKeys[programIdIndex].toString();
+            if (ixProgramId === 'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA') {
+              const ixAccountIndices = ix.accounts || ix.accountKeyIndexes || [];
+              if (ixAccountIndices.length >= 1) {
+                lpMint = accountKeys[ixAccountIndices[0]]?.toString() || null;
+              }
+            }
+          }
+        }
+
+        // Find mints from post balances, excluding LP mint
+        if (tx.meta?.postTokenBalances) {
+          const tokenMints = new Set<string>();
+          for (const balance of tx.meta.postTokenBalances) {
+            if (balance.mint && balance.mint !== lpMint) {
+              tokenMints.add(balance.mint);
+            }
+          }
+          const mintArray = Array.from(tokenMints);
+          if (mintArray.length >= 2) {
+            mintA = mintArray[0];
+            mintB = mintArray[1];
+          }
+        }
       } else if (poolType === 'AMMV4') {
         // AMM v4 initialize2: pool state is typically accounts[0]
         if (accountIndices.length >= 1) {
@@ -503,7 +549,7 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       }
 
       if (!mintA || !mintB || !poolId) {
-        this.logger.warn(`⚠️  Could not extract all pool data. Partial data:`, {
+        this.logger.warn(`⚠️  Could not extract all pool data for transaction: ${signature}. Partial data:`, {
           mintA,
           mintB,
           poolId,
@@ -519,10 +565,10 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
         timestamp: tx.blockTime ? tx.blockTime * 1000 : Date.now(),
         network,
         programId,
-        poolType: poolType as 'AMMV4' | 'CPMM' | 'CLMM',
+        poolType: poolType as 'AMMV4' | 'CPMM' | 'CLMM' | 'LAUNCHLAB',
       };
     } catch (error) {
-      this.logger.error(`❌ Error extracting pool data from transaction: ${error.message}`);
+      this.logger.error(`❌ Error extracting pool data from transaction ${signature}: ${error.message}`);
       return null;
     }
   }
