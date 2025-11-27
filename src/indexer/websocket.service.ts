@@ -17,6 +17,8 @@ interface WebSocketConnection {
   reconnectAttempts: number;
   reconnectTimeout: NodeJS.Timeout | null;
   connectionEvents: ConnectionEvent[];
+  isAlive: boolean;
+  pingInterval: NodeJS.Timeout | null;
 }
 
 @Injectable()
@@ -26,6 +28,7 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
   private rpcConnections = new Map<Network, Connection>();
   private readonly maxReconnectAttempts = 10;
   private readonly baseReconnectDelay = 3000;
+  private readonly heartbeatInterval = 30000; // Ping every 30 seconds
 
   constructor(
     private readonly configService: ConfigService,
@@ -61,6 +64,9 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       }
       if (conn.reconnectTimeout) {
         clearTimeout(conn.reconnectTimeout);
+      }
+      if (conn.pingInterval) {
+        clearInterval(conn.pingInterval);
       }
     });
     this.connections.clear();
@@ -120,6 +126,8 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       reconnectAttempts: 0,
       reconnectTimeout: null,
       connectionEvents: [],
+      isAlive: false,
+      pingInterval: null,
     };
 
     this.connections.set(key, connection);
@@ -143,6 +151,7 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       ws.on('open', () => {
         this.logger.log(`✓ Connected to Helius WebSocket for ${poolType} on ${network}`);
         conn.reconnectAttempts = 0;
+        conn.isAlive = true;
         
         // Track reconnection event
         conn.connectionEvents.push({
@@ -152,6 +161,9 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
         
         // Clean up events older than 24 hours
         this.cleanupOldEvents(conn);
+
+        // Start heartbeat
+        this.startHeartbeat(key);
 
         ws.send(
           JSON.stringify({
@@ -174,12 +186,22 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
 
       ws.on('error', (error) => {
         this.logger.error(`WebSocket error for ${poolType} on ${network}:`, error.message);
+        conn.isAlive = false;
+      });
+
+      // Built-in ping/pong handling
+      ws.on('pong', () => {
+        conn.isAlive = true;
       });
 
       ws.on('close', () => {
         this.logger.warn(`WebSocket closed for ${poolType} on ${network}. Reconnecting...`);
         conn.ws = null;
         conn.subscriptionId = null;
+        conn.isAlive = false;
+        
+        // Stop heartbeat
+        this.stopHeartbeat(key);
         
         // Track disconnection event
         conn.connectionEvents.push({
@@ -616,6 +638,41 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
     } catch (error) {
       this.logger.error(`❌ Error extracting pool data from transaction ${signature}: ${error.message}`);
       return null;
+    }
+  }
+
+  private startHeartbeat(key: string): void {
+    const conn = this.connections.get(key);
+    if (!conn) return;
+
+    // Clear any existing interval
+    if (conn.pingInterval) {
+      clearInterval(conn.pingInterval);
+    }
+
+    conn.pingInterval = setInterval(() => {
+      if (!conn.ws || conn.ws.readyState !== WebSocket.OPEN) {
+        return;
+      }
+
+      if (!conn.isAlive) {
+        this.logger.warn(`Connection lost for ${key}, terminating...`);
+        conn.ws.terminate();
+        return;
+      }
+
+      conn.isAlive = false;
+      conn.ws.ping();
+    }, this.heartbeatInterval);
+  }
+
+  private stopHeartbeat(key: string): void {
+    const conn = this.connections.get(key);
+    if (!conn) return;
+
+    if (conn.pingInterval) {
+      clearInterval(conn.pingInterval);
+      conn.pingInterval = null;
     }
   }
 
