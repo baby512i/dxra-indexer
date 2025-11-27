@@ -82,6 +82,34 @@ npm run start:prod
 
 The server will start on `http://0.0.0.0:8000` (or your configured PORT).
 
+### Running with PM2 on Server
+
+1. **Install PM2 globally:**
+```bash
+npm install -g pm2
+```
+
+2. **Build the project:**
+```bash
+npm run build
+```
+
+3. **Start with PM2:**
+```bash
+pm2 start dist/main.js --name dxra-indexer
+```
+
+4. **Useful PM2 commands:**
+```bash
+pm2 list                    # View all processes
+pm2 logs dxra-indexer       # View logs
+pm2 restart dxra-indexer    # Restart
+pm2 stop dxra-indexer        # Stop
+pm2 delete dxra-indexer     # Remove from PM2
+pm2 save                    # Save process list
+pm2 startup                 # Setup auto-start on boot
+```
+
 ## WebSocket Configuration
 
 ### Setting up Helius API Keys
