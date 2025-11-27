@@ -1,20 +1,54 @@
-import { Controller, Get, Query, BadRequestException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Query,
+  BadRequestException,
+  HttpStatus,
+} from '@nestjs/common';
+import {
+  ApiTags,
+  ApiOperation,
+  ApiResponse,
+  ApiQuery,
+  ApiBadRequestResponse,
+} from '@nestjs/swagger';
 import { MemoryCacheService } from '../storage/memory-cache';
-import { Pool, Network } from '../common/types';
+import { PoolsResponseDto } from './dto/pools-response.dto';
 
-interface PoolsResponse {
-  mint: string;
-  network: Network;
-  pools: Pool[];
-  count: number;
-}
-
+@ApiTags('pools')
 @Controller('pools')
 export class PoolsController {
   constructor(private readonly memoryCache: MemoryCacheService) {}
 
   @Get()
-  async getPools(@Query('mint') mint: string): Promise<PoolsResponse> {
+  @ApiOperation({
+    summary: 'Get pools by mint address (Mainnet)',
+    description:
+      'Retrieves all Raydium pools that contain the specified token mint address on mainnet.',
+  })
+  @ApiQuery({
+    name: 'mint',
+    description: 'Token mint address to search for',
+    example: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    required: true,
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved pools',
+    type: PoolsResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Mint parameter is missing or invalid',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 400 },
+        message: { type: 'string', example: 'Mint parameter is required' },
+        error: { type: 'string', example: 'Bad Request' },
+      },
+    },
+  })
+  async getPools(@Query('mint') mint: string): Promise<PoolsResponseDto> {
     if (!mint || mint.trim() === '') {
       throw new BadRequestException('Mint parameter is required');
     }
@@ -29,7 +63,34 @@ export class PoolsController {
   }
 
   @Get('devnet')
-  async getDevnetPools(@Query('mint') mint: string): Promise<PoolsResponse> {
+  @ApiOperation({
+    summary: 'Get pools by mint address (Devnet)',
+    description:
+      'Retrieves all Raydium pools that contain the specified token mint address on devnet.',
+  })
+  @ApiQuery({
+    name: 'mint',
+    description: 'Token mint address to search for',
+    example: 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+    required: true,
+  })
+  @ApiResponse({
+    status: HttpStatus.OK,
+    description: 'Successfully retrieved pools',
+    type: PoolsResponseDto,
+  })
+  @ApiBadRequestResponse({
+    description: 'Mint parameter is missing or invalid',
+    schema: {
+      type: 'object',
+      properties: {
+        statusCode: { type: 'number', example: 400 },
+        message: { type: 'string', example: 'Mint parameter is required' },
+        error: { type: 'string', example: 'Bad Request' },
+      },
+    },
+  })
+  async getDevnetPools(@Query('mint') mint: string): Promise<PoolsResponseDto> {
     if (!mint || mint.trim() === '') {
       throw new BadRequestException('Mint parameter is required');
     }

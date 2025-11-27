@@ -9,8 +9,10 @@ A NestJS-based indexer that tracks Raydium pool creations in real-time via Heliu
 - **Persistent Storage**: Stores pools in both in-memory cache and JSON files
 - **Automatic Pruning**: Removes pools older than 60 minutes every 60 seconds
 - **RESTful API**: Query pools by token mint address
+- **Swagger Documentation**: Interactive API documentation with Swagger UI
 - **Survives Restarts**: Loads pools from disk on startup, preserving last 60 minutes of data
 - **Automatic Reconnection**: Handles WebSocket disconnections with exponential backoff
+- **Heartbeat Monitoring**: WebSocket heartbeat mechanism to detect and recover from silent connection failures
 
 ## Prerequisites
 
@@ -113,6 +115,22 @@ The service automatically:
    - Extracts pool address, mintA, mintB from the transaction
    - Saves the pool data to memory cache and persistent storage
 4. **Automatic Reconnection**: If a WebSocket connection drops, it automatically reconnects with exponential backoff
+
+## API Documentation
+
+### Swagger UI
+
+Interactive API documentation is available via Swagger UI when the server is running:
+
+```
+http://localhost:8000/api
+```
+
+The Swagger UI provides:
+- Complete API endpoint documentation
+- Request/response schemas
+- Interactive API testing
+- Example requests and responses
 
 ## API Endpoints
 
