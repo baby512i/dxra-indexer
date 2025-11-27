@@ -1,13 +1,11 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
-import { WebhookController } from './webhook.controller';
-import { WebhookService } from './webhook.service';
+import { WebSocketService } from './websocket.service';
 import { StorageModule } from '../storage/storage.module';
 
 @Module({
   imports: [ConfigModule, StorageModule],
-  controllers: [WebhookController],
-  providers: [WebhookService],
+  providers: [WebSocketService],
 })
 export class IndexerModule {}
 

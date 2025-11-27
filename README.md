@@ -1,21 +1,22 @@
 # dxra-indexer
 
-A NestJS-based indexer that tracks Raydium pool creations in real-time via Helius webhooks. The system detects AMM v4, CPMM, and CLMM pool creations on both Solana mainnet and devnet, stores them in-memory and on-disk, and exposes query APIs.
+A NestJS-based indexer that tracks Raydium pool creations in real-time via Helius WebSocket API. The system detects AMM v4, CPMM, and CLMM pool creations on both Solana mainnet and devnet, stores them in-memory and on-disk, and exposes query APIs.
 
 ## Features
 
-- **Real-time Pool Detection**: Monitors Raydium pool creations (AMM v4, CPMM, CLMM) via Helius webhooks
+- **Real-time Pool Detection**: Monitors Raydium pool creations (AMM v4, CPMM, CLMM) via Helius WebSocket connections
 - **Dual Network Support**: Tracks pools on both mainnet and devnet separately
 - **Persistent Storage**: Stores pools in both in-memory cache and JSON files
 - **Automatic Pruning**: Removes pools older than 60 minutes every 60 seconds
 - **RESTful API**: Query pools by token mint address
 - **Survives Restarts**: Loads pools from disk on startup, preserving last 60 minutes of data
+- **Automatic Reconnection**: Handles WebSocket disconnections with exponential backoff
 
 ## Prerequisites
 
 - Node.js 18+ 
 - npm or yarn
-- Helius API account with webhook access
+- Helius API account with API key
 
 ## Installation
 
@@ -42,15 +43,16 @@ Create a `.env` file in the root directory:
 ```env
 PORT=8000
 NODE_ENV=development
-HELIUS_WEBHOOK_ID=your-webhook-id-here
+HELIUS_API_KEY=your-helius-api-key-here
 ```
 
 ### Environment Variables
 
 - `PORT`: Server port (default: 8000)
 - `NODE_ENV`: Environment mode (default: development)
-- `HELIUS_WEBHOOK_ID`: Webhook ID from Helius dashboard (e.g., `0d64f9db-85a1-40f1-91c7-cb43308906f2`) - recommended
-- `HELIUS_WEBHOOK_SECRET`: Alternative: Secret for validating webhook requests (if you have one instead of webhook ID)
+- `HELIUS_API_KEY`: Your Helius API key (required) - Get it from [Helius Dashboard](https://dashboard.helius.dev)
+
+**Note:** The service automatically monitors both mainnet and devnet simultaneously. No network configuration needed.
 
 ## Running the Application
 
@@ -67,51 +69,32 @@ npm run start:prod
 
 The server will start on `http://0.0.0.0:8000` (or your configured PORT).
 
-## Webhook Configuration
+## WebSocket Configuration
 
-### Setting up Helius Webhook
+### Setting up Helius API Key
 
-1. Log in to your Helius dashboard
-2. Create a new webhook with the following settings:
-   - **Webhook URL**: `https://your-domain.com/webhook/raydium`
-   - **Webhook Type**: Enhanced Transactions
-   - **Transaction Types**: Include Raydium program IDs:
-     - Mainnet AMMV4: `675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8`
-     - Mainnet CPMM: `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C`
-     - Mainnet CLMM: `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`
-   - **Webhook ID**: Found in your Helius dashboard, set this in your `.env` file as `HELIUS_WEBHOOK_ID`
+1. Log in to your [Helius Dashboard](https://dashboard.helius.dev)
+2. Navigate to the API section
+3. Copy your API key
+4. Add it to your `.env` file as `HELIUS_API_KEY`
 
-### Example Webhook Payload
+The service automatically:
+- Connects to Helius WebSocket endpoints for both mainnet and devnet
+- Subscribes to logs from all Raydium programs:
+  - **Mainnet AMMV4**: `675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8`
+  - **Mainnet CPMM**: `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C`
+  - **Mainnet CLMM**: `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK`
+  - **Devnet programs**: Automatically configured
 
-Helius Enhanced Webhook format:
+### How It Works
 
-```json
-{
-  "type": "ENHANCED",
-  "data": [
-    {
-      "transaction": {
-        "signatures": ["5j7s8..."],
-        "message": {
-          "accountKeys": [
-            { "pubkey": "pool_address..." },
-            { "pubkey": "mintA..." },
-            { "pubkey": "mintB..." }
-          ]
-        }
-      },
-      "meta": {
-        "logMessages": [
-          "Program log: InitializeInstruction2",
-          "..."
-        ]
-      },
-      "blockTime": 1234567890
-    }
-  ],
-  "secret": "your-webhook-secret"
-}
-```
+1. **WebSocket Connections**: The service establishes WebSocket connections to Helius for each Raydium program on both networks
+2. **Log Subscription**: Uses `logsSubscribe` method to monitor transaction logs in real-time
+3. **Pool Detection**: When pool creation logs are detected, the service:
+   - Fetches the full transaction details via RPC
+   - Extracts pool address, mintA, mintB from the transaction
+   - Saves the pool data to memory cache and persistent storage
+4. **Automatic Reconnection**: If a WebSocket connection drops, it automatically reconnects with exponential backoff
 
 ## API Endpoints
 
@@ -186,19 +169,22 @@ The system automatically prunes pools older than 60 minutes:
 
 ## Pool Detection
 
-The indexer detects three types of Raydium pools:
+The indexer detects three types of Raydium pools by monitoring WebSocket log streams:
 
 ### AMM v4
-- Detects `InitializeInstruction2` in log messages
+- Detects `InitializeInstruction2` or `initialize2:` in log messages
 - Program ID: `675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8` (mainnet)
+- Extracts pool data from transaction account keys and token balances
 
 ### CPMM
-- Detects `init_pool` or `initialize` in log messages
+- Detects `initialize` instruction combined with `InitializeMint2` or liquidity logs
 - Program ID: `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` (mainnet)
+- Extracts pool ID from account keys and mints from token balances
 
 ### CLMM
-- Detects `create_pool` or `initialize_pair` in log messages
+- Detects `createpool`, `create_pool`, or `create pool` in log messages
 - Program ID: `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` (mainnet)
+- Extracts pool ID, mintA, and mintB from account indices with fallback to token balances
 
 ## Project Structure
 
@@ -208,7 +194,7 @@ dxra-indexer/
 │   ├── api/              # Public API endpoints
 │   ├── common/           # Shared types and interfaces
 │   ├── config/           # Configuration modules
-│   ├── indexer/          # Webhook handling and pool detection
+│   ├── indexer/          # WebSocket service and pool detection
 │   │   └── pool-creation-detectors/
 │   ├── storage/          # Storage layer (memory, file, pruning)
 │   ├── app.module.ts     # Root module
@@ -235,77 +221,72 @@ npm run build
 npm run start:dev
 ```
 
-## Testing the Webhook
+## Verifying WebSocket Connections
 
-### Checking Webhook Status
+### Checking Connection Status
 
-Visit the webhook endpoint via GET to check its status:
+When the service starts, you should see logs indicating successful WebSocket connections:
 
-```bash
-GET https://your-domain.com/webhook/raydium
+```
+✓ Connected to Helius WebSocket for CLMM on mainnet
+✓ Subscribed to CLMM logs on mainnet (subscription ID: 123)
+✓ Connected to Helius WebSocket for CPMM on mainnet
+✓ Subscribed to CPMM logs on mainnet (subscription ID: 124)
+...
 ```
 
-This will return:
-```json
-{
-  "endpoint": "/webhook/raydium",
-  "method": "POST",
-  "status": "active",
-  "authentication": {
-    "webhookIdConfigured": true,
-    "webhookSecretConfigured": false,
-    "mode": "webhook-id"
-  },
-  "message": "This endpoint accepts POST requests from Helius. Use POST method to send webhook data."
-}
-```
+### Verifying Pool Detection is Working
 
-**Note:** The webhook endpoint only accepts POST requests. Accessing it via GET in a browser will show status information, but actual webhook data must be sent via POST.
-
-### Verifying Webhook is Working
-
-1. **Check Server Logs**: When Helius sends a webhook, you should see detailed logs:
+1. **Check Server Logs**: When a pool is created, you should see detailed logs:
    ```
-   📥 Webhook received at: 2024-11-26T21:12:00.000Z
-   📋 Headers: {...}
-   ✅ Webhook validated successfully
-   🔄 Processing webhook payload...
-   📊 Found 1 transaction(s) to process
-   ✅ Detected new AMMV4 pool on mainnet: ...
+   ============================================================
+   🔥 NEW RAYDIUM POOL CREATED - CLMM
+   ------------------------------------------------------------
+   Pool Type: CLMM
+   Network: mainnet
+   Program ID: CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK
+   Signature: 5j7s8K9L0mN1oP2qR3sT4uV5wX6yZ7aB8cD9eF0gH1iJ2kL3mN4oP5qR6sT7uV8wX9yZ
+   Slot: 123456789
+   Timestamp: 2024-11-26T21:12:00.000Z
+   ------------------------------------------------------------
+   ============================================================
+   🔍 Extracting pool data from CLMM transaction...
+   ✅ Detected new CLMM pool on mainnet: 58oQChx4yWmvKdwLLZzBi4ChoCc2fqCUWBkwMihLYQo2
+      MintA: EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v, MintB: So11111111111111111111111111111111111111112
    ```
 
-2. **Monitor Pool Count**: After a webhook is processed, check if pools are being added:
+2. **Monitor Pool Count**: Check if pools are being added:
    ```bash
-   GET https://your-domain.com/
+   GET http://localhost:8000/
    ```
    Look at the `stats.mainnetPools` or `stats.devnetPools` count
 
 3. **Query for Specific Mint**: Try querying pools for a token that should have pools:
    ```bash
-   GET https://your-domain.com/pools?mint=<token_address>
+   GET http://localhost:8000/pools?mint=<token_address>
    ```
-
-### Testing from Helius Dashboard
-
-1. Log in to your Helius dashboard
-2. Navigate to your webhook settings
-3. Click "Test Webhook" - Helius will send a test payload
-4. Check your server logs to see if the webhook was received and processed
 
 ### Common Issues
 
-- **404 Error on GET `/webhook/raydium`**: This is normal! The endpoint now returns status info via GET. The actual webhook only processes POST requests.
-- **No logs appearing**: Check that your webhook URL in Helius is correct: `https://your-domain.com/webhook/raydium`
-- **Authentication errors**: Verify `HELIUS_WEBHOOK_ID` in your `.env` file matches the webhook ID in Helius dashboard
+- **No WebSocket connections**: Verify `HELIUS_API_KEY` is set correctly in your `.env` file
+- **Connection drops**: The service automatically reconnects. Check logs for reconnection attempts
+- **No pools detected**: Ensure Raydium programs are active and creating pools on the monitored networks
 
 ## Troubleshooting
 
-### Webhook Not Receiving Data
+### WebSocket Not Connecting
 
-1. Verify webhook URL is accessible from the internet
-2. Check that `HELIUS_WEBHOOK_ID` matches your Helius webhook ID (found in dashboard)
-3. Ensure Raydium program IDs are included in webhook filters
-4. Check server logs for error messages
+1. Verify `HELIUS_API_KEY` is set correctly in your `.env` file
+2. Check that your Helius API key is valid and has WebSocket access
+3. Ensure your network allows WebSocket connections (wss://)
+4. Check server logs for connection errors
+
+### WebSocket Disconnections
+
+1. The service automatically reconnects with exponential backoff
+2. Check logs for reconnection attempts and delays
+3. If reconnections fail repeatedly, verify your API key hasn't expired
+4. Ensure you're not hitting rate limits on your Helius account
 
 ### Pools Not Being Detected
 

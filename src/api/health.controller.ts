@@ -17,7 +17,6 @@ export class HealthController {
       endpoints: {
         mainnet: '/pools?mint=<token_mint_address>',
         devnet: '/pools/devnet?mint=<token_mint_address>',
-        webhook: '/webhook/raydium',
       },
       stats: {
         mainnetPools: mainnetPools.length,

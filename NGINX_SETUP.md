@@ -66,7 +66,7 @@ server {
     ssl_certificate /etc/letsencrypt/live/dxra.me/fullchain.pem;
     ssl_certificate_key /etc/letsencrypt/live/dxra.me/privkey.pem;
 
-    # Increase body size limit for webhook payloads
+    # Increase body size limit for API requests
     client_max_body_size 10M;
 
     # Logging
@@ -200,7 +200,7 @@ Add:
 ```env
 PORT=8000
 NODE_ENV=production
-HELIUS_WEBHOOK_SECRET=your-actual-secret-here
+HELIUS_API_KEY=your-helius-api-key-here
 ```
 
 4. **Build the application:**
@@ -269,10 +269,10 @@ nslookup indexer.dxra.me
 curl https://indexer.dxra.me/pools?mint=EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v
 ```
 
-3. **Test webhook endpoint:**
+3. **Test health endpoint:**
 ```bash
-curl -X POST https://indexer.dxra.me/webhook/raydium
-# Should return 401 Unauthorized (expected without secret)
+curl https://indexer.dxra.me/
+# Should return status and pool statistics
 ```
 
 4. **Check Nginx logs:**
@@ -288,44 +288,32 @@ pm2 logs dxra-indexer
 
 ---
 
-## Step 8: Configure Helius Webhook
+## Step 8: Configure Helius API Key
 
-In your Helius dashboard:
+The service uses WebSocket connections to Helius, so you only need to configure your API key:
 
-1. **Network**: Select `mainnet` (or `devnet` for testing)
+1. **Get your Helius API Key:**
+   - Log in to [Helius Dashboard](https://dashboard.helius.dev)
+   - Navigate to the API section
+   - Copy your API key
 
-2. **Webhook Type**: Select `enhanced`
-
-3. **Transaction Type(s)**: 
-   - You can select `create_pool` if available, OR
-   - Leave as "Any" (we'll filter by program IDs in Account Addresses)
-
-4. **Webhook URL**: 
-   ```
-   https://indexer.dxra.me/webhook/raydium
+2. **Add to `.env` file:**
+   ```env
+   HELIUS_API_KEY=your-helius-api-key-here
    ```
 
-5. **Authentication Header**: (Optional - leave empty if using body secret)
+3. **Restart the application:**
+   ```bash
+   pm2 restart dxra-indexer
+   ```
 
-6. **Account Addresses** ⚠️ **IMPORTANT - Add the 3 Raydium program IDs here:**
-   
-   Click "Manage Addresses" and add these program IDs:
+The service will automatically:
+- Connect to Helius WebSocket endpoints for both mainnet and devnet
+- Subscribe to logs from all Raydium programs (CLMM, CPMM, AMMV4)
+- Detect pool creations in real-time
+- Handle reconnections automatically
 
-   **For Mainnet:**
-   - `675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8` (AMM v4)
-   - `CPMMoo8L3F4NbTegBCKVNunggL7H1ZpdTHKxQB5qKP1C` (CPMM)
-   - `CAMMCzo5YL8w4VFF8KVHrK22GGUsp5VTaW7grrKgrWqK` (CLMM)
-
-   **For Devnet:**
-   - `DRaya7Kj3aMWQSy19kSjvmuwq9docCHofyP9kanQGaav` (AMM v4)
-   - `DRaycpLY18LhpbydsBWbVJtxpNv9oXPgjRSfpF2bWpYb` (CPMM)
-   - `DRayAUgENGQBKVaX8owNhgzkEDyoHTGVEGHVJT1E9pfH` (CLMM)
-
-   **Why Account Addresses?** This tells Helius which Solana programs to monitor. Only transactions involving these programs will trigger webhooks.
-
-7. **Confirm** the webhook
-
-**See `HELIUS_WEBHOOK_SETUP.md` for detailed webhook configuration guide.**
+**No webhook configuration needed!** The service connects directly to Helius via WebSocket.
 
 ---
 
@@ -349,11 +337,12 @@ In your Helius dashboard:
 - Verify Nginx is running: `sudo systemctl status nginx`
 - Check Nginx config: `sudo nginx -t`
 
-### Issue: Webhook not receiving data
+### Issue: WebSocket not connecting
 **Solution:**
-- Verify webhook URL is accessible: `curl https://indexer.dxra.me/webhook/raydium`
-- Check application logs: `pm2 logs dxra-indexer`
-- Verify HELIUS_WEBHOOK_SECRET matches Helius configuration
+- Verify `HELIUS_API_KEY` is set correctly in `.env` file
+- Check application logs: `pm2 logs dxra-indexer` for WebSocket connection status
+- Verify your Helius API key is valid and has WebSocket access
+- Check that your server allows outbound WebSocket connections (wss://)
 
 ---
 
@@ -402,8 +391,8 @@ sudo systemctl reload nginx
 1. ✅ DNS configured in Cloudflare
 2. ✅ Nginx installed and configured
 3. ✅ Application deployed and running
-4. ✅ Webhook URL configured in Helius
-5. ✅ Monitoring logs for incoming webhooks
+4. ✅ Helius API key configured
+5. ✅ Monitoring logs for WebSocket connections and pool detections
 
 Your indexer is now live at: **https://indexer.dxra.me**
 

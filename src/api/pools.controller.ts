@@ -1,4 +1,4 @@
-import { Controller, Get, Query, Param } from '@nestjs/common';
+import { Controller, Get, Query, BadRequestException } from '@nestjs/common';
 import { MemoryCacheService } from '../storage/memory-cache';
 import { Pool, Network } from '../common/types';
 
@@ -15,18 +15,13 @@ export class PoolsController {
 
   @Get()
   async getPools(@Query('mint') mint: string): Promise<PoolsResponse> {
-    if (!mint) {
-      return {
-        mint: '',
-        network: 'mainnet',
-        pools: [],
-        count: 0,
-      };
+    if (!mint || mint.trim() === '') {
+      throw new BadRequestException('Mint parameter is required');
     }
 
-    const pools = this.memoryCache.getPoolsByMint('mainnet', mint);
+    const pools = this.memoryCache.getPoolsByMint('mainnet', mint.trim());
     return {
-      mint,
+      mint: mint.trim(),
       network: 'mainnet',
       pools,
       count: pools.length,
@@ -35,18 +30,13 @@ export class PoolsController {
 
   @Get('devnet')
   async getDevnetPools(@Query('mint') mint: string): Promise<PoolsResponse> {
-    if (!mint) {
-      return {
-        mint: '',
-        network: 'devnet',
-        pools: [],
-        count: 0,
-      };
+    if (!mint || mint.trim() === '') {
+      throw new BadRequestException('Mint parameter is required');
     }
 
-    const pools = this.memoryCache.getPoolsByMint('devnet', mint);
+    const pools = this.memoryCache.getPoolsByMint('devnet', mint.trim());
     return {
-      mint,
+      mint: mint.trim(),
       network: 'devnet',
       pools,
       count: pools.length,
