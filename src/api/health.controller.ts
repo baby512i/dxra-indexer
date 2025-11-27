@@ -13,7 +13,6 @@ export class HealthController {
   getHealth() {
     const mainnetPools = this.memoryCache.getAllPools('mainnet');
     const devnetPools = this.memoryCache.getAllPools('devnet');
-    const websocketConnections = this.webSocketService.getConnectionStatus();
 
     return {
       status: 'ok',
@@ -27,15 +26,17 @@ export class HealthController {
         mainnetPools: mainnetPools.length,
         devnetPools: devnetPools.length,
       },
-      websocketConnections,
       timestamp: new Date().toISOString(),
     };
   }
 
   @Get('health')
   getHealthCheck() {
+    const websocketConnections = this.webSocketService.getConnectionStatus();
+
     return {
       status: 'ok',
+      websocketConnections,
       timestamp: new Date().toISOString(),
     };
   }

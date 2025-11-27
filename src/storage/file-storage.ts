@@ -19,9 +19,29 @@ export class FileStorageService {
         return [];
       }
       const data = fs.readFileSync(filePath, 'utf-8');
-      return JSON.parse(data);
+      
+      // Check if file is empty or only whitespace
+      const trimmedData = data.trim();
+      if (!trimmedData) {
+        console.warn(`File ${filePath} is empty, returning empty array`);
+        return [];
+      }
+      
+      // Try to parse JSON
+      const parsed = JSON.parse(trimmedData);
+      
+      // Ensure it's an array
+      if (!Array.isArray(parsed)) {
+        console.warn(`File ${filePath} does not contain an array, returning empty array`);
+        return [];
+      }
+      
+      return parsed;
     } catch (error) {
+      // If JSON parse fails, the file might be corrupted
+      // Log the error and return empty array to allow recovery
       console.error(`Error loading pools for ${network}:`, error);
+      console.warn(`File ${filePath} may be corrupted. Returning empty array to allow recovery.`);
       return [];
     }
   }

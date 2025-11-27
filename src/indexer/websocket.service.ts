@@ -6,11 +6,17 @@ import { MemoryCacheService } from '../storage/memory-cache';
 import { Pool, Network } from '../common/types';
 import { RAYDIUM_MAINNET_PROGRAMS, RAYDIUM_DEVNET_PROGRAMS } from '../config/programs';
 
+interface ConnectionEvent {
+  timestamp: Date;
+  type: 'disconnected' | 'reconnected';
+}
+
 interface WebSocketConnection {
   ws: WebSocket | null;
   subscriptionId: number | null;
   reconnectAttempts: number;
   reconnectTimeout: NodeJS.Timeout | null;
+  connectionEvents: ConnectionEvent[];
 }
 
 @Injectable()
@@ -113,6 +119,7 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       subscriptionId: null,
       reconnectAttempts: 0,
       reconnectTimeout: null,
+      connectionEvents: [],
     };
 
     this.connections.set(key, connection);
@@ -136,6 +143,15 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       ws.on('open', () => {
         this.logger.log(`✓ Connected to Helius WebSocket for ${poolType} on ${network}`);
         conn.reconnectAttempts = 0;
+        
+        // Track reconnection event
+        conn.connectionEvents.push({
+          timestamp: new Date(),
+          type: 'reconnected',
+        });
+        
+        // Clean up events older than 24 hours
+        this.cleanupOldEvents(conn);
 
         ws.send(
           JSON.stringify({
@@ -164,6 +180,16 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`WebSocket closed for ${poolType} on ${network}. Reconnecting...`);
         conn.ws = null;
         conn.subscriptionId = null;
+        
+        // Track disconnection event
+        conn.connectionEvents.push({
+          timestamp: new Date(),
+          type: 'disconnected',
+        });
+        
+        // Clean up events older than 24 hours
+        this.cleanupOldEvents(conn);
+        
         this.scheduleReconnect(network, poolType, programId, wssEndpoint, key);
       });
     } catch (error) {
@@ -593,8 +619,34 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  getConnectionStatus(): Record<string, { status: string; subscriptionId: number | null; reconnectAttempts: number }> {
-    const status: Record<string, { status: string; subscriptionId: number | null; reconnectAttempts: number }> = {};
+  private cleanupOldEvents(conn: WebSocketConnection): void {
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
+    conn.connectionEvents = conn.connectionEvents.filter(
+      (event) => event.timestamp >= twentyFourHoursAgo,
+    );
+  }
+
+  private getDisconnectionReconnectionCount(conn: WebSocketConnection): number {
+    this.cleanupOldEvents(conn);
+    
+    // Count pairs of disconnection followed by reconnection
+    let count = 0;
+    let lastDisconnected = false;
+    
+    for (const event of conn.connectionEvents) {
+      if (event.type === 'disconnected') {
+        lastDisconnected = true;
+      } else if (event.type === 'reconnected' && lastDisconnected) {
+        count++;
+        lastDisconnected = false;
+      }
+    }
+    
+    return count;
+  }
+
+  getConnectionStatus(): Record<string, { status: string; subscriptionId: number | null; reconnectCount24h: number }> {
+    const status: Record<string, { status: string; subscriptionId: number | null; reconnectCount24h: number }> = {};
 
     this.connections.forEach((conn, key) => {
       let connectionStatus = 'disconnected';
@@ -614,7 +666,7 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       status[key] = {
         status: connectionStatus,
         subscriptionId: conn.subscriptionId,
-        reconnectAttempts: conn.reconnectAttempts,
+        reconnectCount24h: this.getDisconnectionReconnectionCount(conn),
       };
     });
 
