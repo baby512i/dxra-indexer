@@ -21,6 +21,15 @@ interface WebSocketConnection {
   pingInterval: NodeJS.Timeout | null;
 }
 
+interface RetryTask {
+  signature: string;
+  poolType: string;
+  programId: string;
+  network: Network;
+  retryCount: number;
+  timeout: NodeJS.Timeout;
+}
+
 @Injectable()
 export class WebSocketService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(WebSocketService.name);
@@ -29,6 +38,10 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
   private readonly maxReconnectAttempts = 10;
   private readonly baseReconnectDelay = 3000;
   private readonly heartbeatInterval = 30000; // Ping every 30 seconds
+  private readonly retryDelay = 20000; // Retry after 20 seconds
+  private readonly maxRetryAttempts = 3; // Maximum retry attempts per transaction
+  private retryQueue = new Map<string, RetryTask>(); // Track pending retries
+  private processingRetries = new Set<string>(); // Track transactions currently being retried
 
   constructor(
     private readonly configService: ConfigService,
@@ -70,6 +83,13 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       }
     });
     this.connections.clear();
+    
+    // Clean up retry timeouts
+    this.retryQueue.forEach((task) => {
+      clearTimeout(task.timeout);
+    });
+    this.retryQueue.clear();
+    this.processingRetries.clear();
   }
 
   private initializeRpcConnections() {
@@ -344,14 +364,29 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
     poolType: string,
     programId: string,
     network: Network,
+    isRetry: boolean = false,
+    retryCount: number = 0,
   ): Promise<void> {
     try {
-      this.logger.log(`🔍 Extracting pool data from ${poolType} transaction...`);
-      this.logger.log(`   Transaction signature: ${signature}`);
+      // Skip if this is already being processed as a retry
+      if (isRetry && this.processingRetries.has(signature)) {
+        return;
+      }
+
+      if (isRetry) {
+        this.processingRetries.add(signature);
+        this.logger.log(`🔄 Retrying extraction for transaction: ${signature}`);
+      } else {
+        this.logger.log(`🔍 Extracting pool data from ${poolType} transaction...`);
+        this.logger.log(`   Transaction signature: ${signature}`);
+      }
 
       const connection = this.rpcConnections.get(network);
       if (!connection) {
         this.logger.error(`No RPC connection for ${network}`);
+        if (isRetry) {
+          this.processingRetries.delete(signature);
+        }
         return;
       }
 
@@ -362,6 +397,15 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
 
       if (!tx || tx.meta?.err) {
         this.logger.error(`❌ Transaction not found or failed: ${signature}`);
+        if (isRetry) {
+          this.processingRetries.delete(signature);
+        }
+        // Schedule retry if we haven't exceeded max attempts
+        if (retryCount < this.maxRetryAttempts) {
+          this.scheduleRetry(signature, poolType, programId, network, retryCount);
+        } else {
+          this.logger.warn(`Max retry attempts reached for transaction: ${signature}. Giving up.`);
+        }
         return;
       }
 
@@ -369,6 +413,15 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       
       if (!poolData) {
         this.logger.warn(`⚠️  Could not extract pool data from transaction: ${signature}`);
+        if (isRetry) {
+          this.processingRetries.delete(signature);
+        }
+        // Schedule retry if we haven't exceeded max attempts
+        if (retryCount < this.maxRetryAttempts) {
+          this.scheduleRetry(signature, poolType, programId, network, retryCount);
+        } else {
+          this.logger.warn(`Max retry attempts reached for transaction: ${signature}. Giving up.`);
+        }
         return;
       }
 
@@ -383,8 +436,28 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
       } else {
         this.logger.log(`⏭️  Pool ${poolData.poolAddress} already exists, skipping`);
       }
+
+      // Clear retry tracking on success
+      if (isRetry) {
+        this.processingRetries.delete(signature);
+        // Cancel any pending retry for this signature
+        const existingRetry = this.retryQueue.get(signature);
+        if (existingRetry) {
+          clearTimeout(existingRetry.timeout);
+          this.retryQueue.delete(signature);
+        }
+      }
     } catch (error) {
       this.logger.error(`❌ Error extracting pool data: ${error.message}`);
+      if (isRetry) {
+        this.processingRetries.delete(signature);
+      }
+      // Schedule retry if we haven't exceeded max attempts
+      if (retryCount < this.maxRetryAttempts) {
+        this.scheduleRetry(signature, poolType, programId, network, retryCount);
+      } else {
+        this.logger.warn(`Max retry attempts reached for transaction: ${signature}. Giving up.`);
+      }
     }
   }
 
@@ -757,6 +830,54 @@ export class WebSocketService implements OnModuleInit, OnModuleDestroy {
     conn.reconnectTimeout = setTimeout(() => {
       this.connectWebSocket(network, poolType, programId, wssEndpoint, key);
     }, delay);
+  }
+
+  private scheduleRetry(
+    signature: string,
+    poolType: string,
+    programId: string,
+    network: Network,
+    retryCount: number,
+  ): void {
+    // Check if already scheduled for retry
+    if (this.retryQueue.has(signature)) {
+      this.logger.debug(`Retry already scheduled for transaction: ${signature}`);
+      return;
+    }
+
+    // Check if we've exceeded max retry attempts
+    if (retryCount >= this.maxRetryAttempts) {
+      this.logger.warn(
+        `Max retry attempts (${this.maxRetryAttempts}) reached for transaction: ${signature}. Giving up.`,
+      );
+      return;
+    }
+
+    const nextRetryCount = retryCount + 1;
+    this.logger.log(
+      `⏰ Scheduling retry for transaction ${signature} in ${this.retryDelay}ms (attempt ${nextRetryCount}/${this.maxRetryAttempts})`,
+    );
+
+    const timeout = setTimeout(() => {
+      // Remove from queue before processing
+      this.retryQueue.delete(signature);
+      
+      // Retry extraction with the retry count
+      this.extractAndSavePoolData(signature, poolType, programId, network, true, nextRetryCount).catch((error) => {
+        this.logger.error(`Error during retry for ${signature}: ${error.message}`);
+        this.processingRetries.delete(signature);
+      });
+    }, this.retryDelay);
+
+    // Store retry task
+    this.retryQueue.set(signature, {
+      signature,
+      poolType,
+      programId,
+      network,
+      retryCount: nextRetryCount,
+      timeout,
+    });
   }
 }
 
